@@ -1,0 +1,256 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>BIM to GIS Indoor Map</title>
+<meta name="description" content="Indoor map built from a Revit model: IFC to GeoPackage to the web. Floor switcher, room search, network equipment and a failure simulation. Fictional building.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@600;700&family=Source+Sans+3:wght@400;600;700&family=JetBrains+Mono:wght@400;600&display=swap">
+<link rel="stylesheet" href="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.css">
+<style>
+:root{--navy:#0F1B2D;--navy2:#162538;--graphite:#1E2430;--line:#2b3a50;--ivory:#F3EEE3;--muted:#9aa8ba;--cyan:#3FC1C9;--gold:#D4A43A;--red:#E5484D;--amber:#F0A830;--green:#3CCB7F;
+--f-d:"Barlow Condensed","Arial Narrow",Arial,sans-serif;--f-b:"Source Sans 3","Segoe UI",system-ui,sans-serif;--f-m:"JetBrains Mono",ui-monospace,Consolas,monospace}
+*{box-sizing:border-box}
+html,body{margin:0;height:100%;background:var(--navy);color:var(--ivory);font:14px/1.45 var(--f-b)}
+a{color:var(--cyan)}
+.app{display:grid;grid-template-columns:minmax(0,1fr) 400px;grid-template-rows:auto minmax(0,1fr);height:100%}
+header{grid-column:1/-1;display:flex;flex-wrap:wrap;align-items:center;gap:8px 24px;padding:10px 18px;border-bottom:1px solid var(--line)}
+.eyebrow{font:600 11px var(--f-m);letter-spacing:.1em;text-transform:uppercase;color:var(--gold)}
+h1{margin:0;font:700 30px/1 var(--f-d);letter-spacing:.02em}
+.pipe{display:flex;flex-wrap:wrap;gap:6px;align-items:center;font:600 11px var(--f-m);color:var(--muted);flex:1 1 380px}
+.pipe span{background:var(--navy2);border:1px solid var(--line);border-radius:4px;padding:3px 7px;color:var(--ivory)}
+.pipe i{font-style:normal;color:var(--cyan)}
+.mapwrap{position:relative;min-height:0}
+#map{position:absolute;inset:0}
+.floors{position:absolute;top:12px;left:12px;z-index:5;display:flex;flex-direction:column;gap:6px}
+.floors button,.seg button{font:700 14px var(--f-d);letter-spacing:.06em;text-transform:uppercase;background:rgba(15,27,45,.94);color:var(--ivory);border:1px solid var(--line);border-radius:6px;padding:8px 12px;cursor:pointer;min-width:56px}
+.floors button[aria-pressed="true"],.seg button[aria-pressed="true"]{background:var(--cyan);color:var(--navy);border-color:var(--cyan)}
+.viewbtn{position:absolute;top:12px;right:52px;z-index:5;display:flex;gap:0}
+.viewbtn button{border-radius:0}.viewbtn button:first-child{border-radius:6px 0 0 6px}.viewbtn button:last-child{border-radius:0 6px 6px 0}
+.legend{position:absolute;left:12px;bottom:28px;z-index:5;background:rgba(15,27,45,.94);border:1px solid var(--line);border-radius:6px;padding:9px 11px;font-size:12.5px}
+.legend h3{margin:0 0 6px;font:700 13px var(--f-d);letter-spacing:.08em;text-transform:uppercase;color:var(--gold)}
+.legend ul{list-style:none;margin:0;padding:0;display:grid;gap:4px}
+.legend li{display:flex;gap:8px;align-items:center}
+.sw{width:12px;height:12px;border-radius:50%;flex:0 0 12px;border:2px solid #0b1320}
+.sq{width:16px;height:12px;border-radius:2px;flex:0 0 16px}
+.note-fict{position:absolute;right:8px;bottom:26px;z-index:5;font:10.5px var(--f-m);color:#dfe6ee;text-shadow:0 0 3px #000}
+aside{overflow-y:auto;background:var(--graphite);border-left:1px solid var(--line)}
+aside section{padding:14px 18px;border-bottom:1px solid var(--line)}
+h2{margin:0 0 8px;font:700 15px var(--f-d);letter-spacing:.08em;text-transform:uppercase}
+.note{color:var(--muted);font-size:12.5px;margin:6px 0 0}
+.search{display:flex;gap:6px}
+.search input{flex:1;background:var(--navy2);border:1px solid var(--line);border-radius:4px;color:var(--ivory);padding:8px 10px;font:14px var(--f-b)}
+.search button,.btn{font:700 13px var(--f-d);letter-spacing:.06em;text-transform:uppercase;background:var(--cyan);color:var(--navy);border:0;border-radius:4px;padding:8px 12px;cursor:pointer}
+.btn.ghost{background:var(--navy2);color:var(--ivory);border:1px solid var(--line)}
+.card{background:var(--navy2);border:1px solid var(--line);border-radius:6px;padding:10px 12px;margin-top:10px;font-size:13px}
+.card b.h{display:block;font:700 17px var(--f-d);letter-spacing:.02em}
+.card .kv{display:grid;grid-template-columns:auto 1fr;gap:2px 10px;margin-top:6px;font-size:12.5px}
+.card .kv span:nth-child(odd){color:var(--muted);font-family:var(--f-m);font-size:11px;text-transform:uppercase;letter-spacing:.05em;padding-top:1px}
+.kpis{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px}
+.kpi{background:var(--navy2);border:1px solid var(--line);border-radius:6px;padding:8px 10px}
+.kpi b{display:block;font:600 10px var(--f-m);letter-spacing:.07em;text-transform:uppercase;color:var(--muted)}
+.kpi span{font:600 24px/1.1 var(--f-m)}
+select{background:var(--navy2);color:var(--ivory);border:1px solid var(--line);border-radius:4px;padding:7px 8px;font:13px var(--f-b);flex:1}
+.sim{display:flex;gap:6px;flex-wrap:wrap}
+.list{list-style:none;margin:8px 0 0;padding:0;display:grid;gap:4px;font-size:13px}
+.list li{display:flex;gap:8px;align-items:center}
+.pill{font:600 10px var(--f-m);letter-spacing:.05em;text-transform:uppercase;padding:1px 6px;border-radius:3px;flex:0 0 auto}
+.pill.down{background:var(--red);color:#fff}.pill.deg{background:var(--amber);color:#1d1606}.pill.ok{background:var(--green);color:#06210f}
+.tbl{width:100%;border-collapse:collapse;font-size:12.5px}
+.tbl td{padding:3px 0;border-bottom:1px solid #26344a}
+.tbl td:last-child{text-align:right;font-family:var(--f-m)}
+.dl{display:flex;gap:8px;flex-wrap:wrap}
+.disc{font:10.5px/1.5 var(--f-m);color:var(--muted);text-transform:uppercase;letter-spacing:.03em;margin:0}
+.maplibregl-popup-content{background:var(--navy);color:var(--ivory);border:1px solid var(--line);font:13px var(--f-b)}
+.maplibregl-popup-tip{border-top-color:var(--navy)!important;border-bottom-color:var(--navy)!important}
+.maplibregl-ctrl-attrib{font-size:10px}
+@media (max-width:900px){.app{grid-template-columns:1fr;grid-template-rows:auto 65vh auto;height:auto}aside{border-left:0;border-top:1px solid var(--line)}.legend{display:none}.viewbtn{right:12px;top:auto;bottom:12px}}
+</style>
+</head>
+<body>
+<div class="app">
+  <header>
+    <div>
+      <div class="eyebrow">BIM to GIS · indoor mapping without an Indoors license</div>
+      <h1>Ridgeline Commons Indoor Map</h1>
+    </div>
+    <div class="pipe" aria-label="Data pipeline"><span>Revit model</span><i>→</i><span>IFC 2x3</span><i>→</i><span>Python (IfcOpenShell)</span><i>→</i><span>GeoPackage</span><i>→</i><span>Web map</span></div>
+  </header>
+
+  <div class="mapwrap">
+    <div id="map" role="application" aria-label="Indoor map of a fictional two-story office building"></div>
+    <div class="floors" role="group" aria-label="Floor"><button data-f="Level 2" aria-pressed="false">L2</button><button data-f="Level 1" aria-pressed="true">L1</button></div>
+    <div class="viewbtn seg" role="group" aria-label="View"><button id="v2d" aria-pressed="true">2D</button><button id="v3d" aria-pressed="false">3D</button></div>
+    <div class="legend">
+      <h3>Legend</h3>
+      <ul>
+        <li><span class="sq" style="background:#2a4766;border:1px solid #3FC1C9"></span>Room</li>
+        <li><span class="sq" style="background:#E5484D"></span>No Wi-Fi / device offline</li>
+        <li><span class="sq" style="background:#F0A830"></span>Degraded Wi-Fi</li>
+        <li><span class="sw" style="background:#D4A43A"></span>Router / switch</li>
+        <li><span class="sw" style="background:#3FC1C9"></span>Access point</li>
+        <li><span class="sw" style="background:#b48cff"></span>Printer, camera, badge reader</li>
+      </ul>
+    </div>
+    <div class="note-fict">Fictional building and data · simulation, not a real network</div>
+  </div>
+
+  <aside>
+    <section>
+      <h2>Find a room</h2>
+      <form class="search" id="searchForm"><input id="q" list="roomList" placeholder="e.g. Conference 211 or U112" autocomplete="off" aria-label="Room name or number"><datalist id="roomList"></datalist><button type="submit">Go</button></form>
+      <div id="info"></div>
+    </section>
+
+    <section>
+      <h2>Network failure simulation</h2>
+      <p class="note" style="margin-top:0">Pick a device, or click one on the map, to see which devices go down and which rooms lose service.</p>
+      <div class="sim" style="margin-top:8px"><select id="failSel" aria-label="Device to fail"></select><button class="btn" id="failBtn">Fail it</button><button class="btn ghost" id="resetBtn">Reset</button></div>
+      <div class="kpis" style="margin-top:10px">
+        <div class="kpi"><b>Devices down</b><span id="kDown" style="color:var(--red)">0</span></div>
+        <div class="kpi"><b>Rooms affected</b><span id="kLost" style="color:var(--red)">0</span></div>
+        <div class="kpi"><b>Weaker Wi-Fi</b><span id="kDeg" style="color:var(--amber)">0</span></div>
+      </div>
+      <ul class="list" id="simList"></ul>
+    </section>
+
+    <section>
+      <h2>What's in the model</h2>
+      <table class="tbl" id="stats"></table>
+      <p class="note">Rooms, levels and equipment came out of the Revit model as IFC, then a Python script (IfcOpenShell) placed them on the map in UTM 13N and wrote Indoors-style fields (FACILITY_ID, LEVEL_ID, UNIT_ID). The network links used by the simulation are modeled for this demo.</p>
+    </section>
+
+    <section>
+      <h2>Get the data</h2>
+      <div class="dl"><button class="btn" data-dl="rooms">Rooms</button><button class="btn" data-dl="equipment">Equipment</button><button class="btn" data-dl="floors">Floors</button></div>
+      <p class="note">GeoJSON, WGS84.</p>
+    </section>
+
+    <section>
+      <p class="disc">Fictional building ("Ridgeline Commons") modeled by Carlos Barrera in Revit (Education license). No real building, county or network data. Basemap: Esri World Dark Gray / World Imagery.</p>
+    </section>
+  </aside>
+</div>
+
+<script src="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.js"></script>
+<script>
+window.DATA={"rooms":{"type":"FeatureCollection","features":[{"type":"Feature","properties":{"UNIT_ID":"U101","NAME":"Lobby","USE_TYPE":"Lobby","LEVEL_ID":"RC-01-L1","FACILITY_ID":"RC-01","AREA_SQM":186.44,"IFC_GUID":"1cZU8hZXn75xzRZjagHMj_","FLOOR":"Level 1","ELEV":0.0},"geometry":{"type":"Polygon","coordinates":[[[-104.6099975,38.9401437],[-104.6098613,38.9401433],[-104.6098621,38.9400009],[-104.6099983,38.9400013],[-104.6099975,38.9401437]]]}},{"type":"Feature","properties":{"UNIT_ID":"U102","NAME":"Reception","USE_TYPE":"Office","LEVEL_ID":"RC-01-L1","FACILITY_ID":"RC-01","AREA_SQM":124.82,"IFC_GUID":"1cZU8hZXn75xzRZjagHMjy","FLOOR":"Level 1","ELEV":0.0},"geometry":{"type":"Polygon","coordinates":[[[-104.6098602,38.9401433],[-104.609769,38.940143],[-104.6097698,38.9400006],[-104.609861,38.9400009],[-104.6098602,38.9401433]]]}},{"type":"Feature","properties":{"UNIT_ID":"U103","NAME":"Open Office A","USE_TYPE":"Open Office","LEVEL_ID":"RC-01-L1","FACILITY_ID":"RC-01","AREA_SQM":314.42,"IFC_GUID":"1cZU8hZXn75xzRZjagHMjp","FLOOR":"Level 1","ELEV":0.0},"geometry":{"type":"Polygon","coordinates":[[[-104.6097679,38.940143],[-104.6095383,38.9401422],[-104.609539,38.9399998],[-104.6097687,38.9400006],[-104.6097679,38.940143]]]}},{"type":"Feature","properties":{"UNIT_ID":"U104","NAME":"Break Room","USE_TYPE":"Kitchen","LEVEL_ID":"RC-01-L1","FACILITY_ID":"RC-01","AREA_SQM":156.42,"IFC_GUID":"1cZU8hZXn75xzRZjagHMjo","FLOOR":"Level 1","ELEV":0.0},"geometry":{"type":"Polygon","coordinates":[[[-104.6095371,38.9401422],[-104.6094229,38.9401418],[-104.6094237,38.9399994],[-104.6095379,38.9399998],[-104.6095371,38.9401422]]]}},{"type":"Feature","properties":{"UNIT_ID":"U105","NAME":"Restrooms","USE_TYPE":"Restroom","LEVEL_ID":"RC-01-L1","FACILITY_ID":"RC-01","AREA_SQM":154.84,"IFC_GUID":"1cZU8hZXn75xzRZjagHMjn","FLOOR":"Level 1","ELEV":0.0},"geometry":{"type":"Polygon","coordinates":[[[-104.6094217,38.9401418],[-104.6093086,38.9401414],[-104.6093094,38.939999],[-104.6094225,38.9399994],[-104.6094217,38.9401418]]]}},{"type":"Feature","properties":{"UNIT_ID":"U110","NAME":"Corridor 1","USE_TYPE":"Circulation","LEVEL_ID":"RC-01-L1","FACILITY_ID":"RC-01","AREA_SQM":232.83,"IFC_GUID":"1cZU8hZXn75xzRZjagHMjm","FLOOR":"Level 1","ELEV":0.0},"geometry":{"type":"Polygon","coordinates":[[[-104.6099975,38.9401446],[-104.6099973,38.9401798],[-104.6093084,38.9401775],[-104.6093086,38.9401423],[-104.6099975,38.9401446]]]}},{"type":"Feature","properties":{"UNIT_ID":"U111","NAME":"Conference 111","USE_TYPE":"Conference Room","LEVEL_ID":"RC-01-L1","FACILITY_ID":"RC-01","AREA_SQM":218.04,"IFC_GUID":"1cZU8hZXn75xzRZjagHMjt","FLOOR":"Level 1","ELEV":0.0},"geometry":{"type":"Polygon","coordinates":[[[-104.6099965,38.940323],[-104.6098373,38.9403225],[-104.6098381,38.9401801],[-104.6099973,38.9401807],[-104.6099965,38.940323]]]}},{"type":"Feature","properties":{"UNIT_ID":"U112","NAME":"Open Office B","USE_TYPE":"Open Office","LEVEL_ID":"RC-01-L1","FACILITY_ID":"RC-01","AREA_SQM":377.62,"IFC_GUID":"1cZU8hZXn75xzRZjagHMjs","FLOOR":"Level 1","ELEV":0.0},"geometry":{"type":"Polygon","coordinates":[[[-104.6098369,38.9401801],[-104.6098361,38.9403225],[-104.6095603,38.9403216],[-104.6095611,38.9401792],[-104.6098369,38.9401801]]]}},{"type":"Feature","properties":{"UNIT_ID":"U113","NAME":"MDF / Telecom","USE_TYPE":"Telecom","LEVEL_ID":"RC-01-L1","FACILITY_ID":"RC-01","AREA_SQM":124.82,"IFC_GUID":"1cZU8hZXn75xzRZjagHMjr","FLOOR":"Level 1","ELEV":0.0},"geometry":{"type":"Polygon","coordinates":[[[-104.60956,38.9401792],[-104.6095592,38.9403216],[-104.609468,38.9403213],[-104.6094688,38.9401789],[-104.60956,38.9401792]]]}},{"type":"Feature","properties":{"UNIT_ID":"U114","NAME":"Storage","USE_TYPE":"Storage","LEVEL_ID":"RC-01-L1","FACILITY_ID":"RC-01","AREA_SQM":93.22,"IFC_GUID":"1cZU8hZXn75xzRZjagHMjq","FLOOR":"Level 1","ELEV":0.0},"geometry":{"type":"Polygon","coordinates":[[[-104.6094677,38.9401789],[-104.6094669,38.9403213],[-104.6093988,38.940321],[-104.6093996,38.9401787],[-104.6094677,38.9401789]]]}},{"type":"Feature","properties":{"UNIT_ID":"U115","NAME":"Stair & Elevator","USE_TYPE":"Vertical Circulation","LEVEL_ID":"RC-01-L1","FACILITY_ID":"RC-01","AREA_SQM":123.24,"IFC_GUID":"1cZU8hZXn75xzRZjagHMjB","FLOOR":"Level 1","ELEV":0.0},"geometry":{"type":"Polygon","coordinates":[[[-104.6093984,38.9401787],[-104.6093977,38.940321],[-104.6093077,38.9403207],[-104.6093084,38.9401784],[-104.6093984,38.9401787]]]}},{"type":"Feature","properties":{"UNIT_ID":"U201","NAME":"Open Office C","USE_TYPE":"Open Office","LEVEL_ID":"RC-01-L2","FACILITY_ID":"RC-01","AREA_SQM":376.04,"IFC_GUID":"1cZU8hZXn75xzRZjagHMjA","FLOOR":"Level 2","ELEV":4.0},"geometry":{"type":"Polygon","coordinates":[[[-104.6099975,38.9401437],[-104.6097229,38.9401428],[-104.6097237,38.9400004],[-104.6099983,38.9400013],[-104.6099975,38.9401437]]]}},{"type":"Feature","properties":{"UNIT_ID":"U202","NAME":"Office 202","USE_TYPE":"Office","LEVEL_ID":"RC-01-L2","FACILITY_ID":"RC-01","AREA_SQM":124.82,"IFC_GUID":"1cZU8hZXn75xzRZjagHMj8","FLOOR":"Level 2","ELEV":4.0},"geometry":{"type":"Polygon","coordinates":[[[-104.6097217,38.9401428],[-104.6096306,38.9401425],[-104.6096313,38.9400001],[-104.6097225,38.9400004],[-104.6097217,38.9401428]]]}},{"type":"Feature","properties":{"UNIT_ID":"U203","NAME":"Office 203","USE_TYPE":"Office","LEVEL_ID":"RC-01-L2","FACILITY_ID":"RC-01","AREA_SQM":124.82,"IFC_GUID":"1cZU8hZXn75xzRZjagHMjF","FLOOR":"Level 2","ELEV":4.0},"geometry":{"type":"Polygon","coordinates":[[[-104.6096294,38.9401425],[-104.6095383,38.9401422],[-104.609539,38.9399998],[-104.6096302,38.9400001],[-104.6096294,38.9401425]]]}},{"type":"Feature","properties":{"UNIT_ID":"U204","NAME":"Training Room","USE_TYPE":"Classroom","LEVEL_ID":"RC-01-L2","FACILITY_ID":"RC-01","AREA_SQM":312.84,"IFC_GUID":"1cZU8hZXn75xzRZjagHMjE","FLOOR":"Level 2","ELEV":4.0},"geometry":{"type":"Polygon","coordinates":[[[-104.6095371,38.9401422],[-104.6093086,38.9401414],[-104.6093094,38.939999],[-104.6095379,38.9399998],[-104.6095371,38.9401422]]]}},{"type":"Feature","properties":{"UNIT_ID":"U210","NAME":"Corridor 2","USE_TYPE":"Circulation","LEVEL_ID":"RC-01-L2","FACILITY_ID":"RC-01","AREA_SQM":232.83,"IFC_GUID":"1cZU8hZXn75xzRZjagHMjD","FLOOR":"Level 2","ELEV":4.0},"geometry":{"type":"Polygon","coordinates":[[[-104.6099975,38.9401446],[-104.6099973,38.9401798],[-104.6093084,38.9401775],[-104.6093086,38.9401423],[-104.6099975,38.9401446]]]}},{"type":"Feature","properties":{"UNIT_ID":"U211","NAME":"Conference 211","USE_TYPE":"Conference Room","LEVEL_ID":"RC-01-L2","FACILITY_ID":"RC-01","AREA_SQM":249.64,"IFC_GUID":"1cZU8hZXn75xzRZjagHMjC","FLOOR":"Level 2","ELEV":4.0},"geometry":{"type":"Polygon","coordinates":[[[-104.6099965,38.940323],[-104.6098142,38.9403224],[-104.609815,38.9401801],[-104.6099973,38.9401807],[-104.6099965,38.940323]]]}},{"type":"Feature","properties":{"UNIT_ID":"U212","NAME":"Open Office D","USE_TYPE":"Open Office","LEVEL_ID":"RC-01-L2","FACILITY_ID":"RC-01","AREA_SQM":346.02,"IFC_GUID":"1cZU8hZXn75xzRZjagHMj3","FLOOR":"Level 2","ELEV":4.0},"geometry":{"type":"Polygon","coordinates":[[[-104.6098138,38.9401801],[-104.609813,38.9403224],[-104.6095603,38.9403216],[-104.6095611,38.9401792],[-104.6098138,38.9401801]]]}},{"type":"Feature","properties":{"UNIT_ID":"U213","NAME":"IDF 2 / Telecom","USE_TYPE":"Telecom","LEVEL_ID":"RC-01-L2","FACILITY_ID":"RC-01","AREA_SQM":124.82,"IFC_GUID":"1cZU8hZXn75xzRZjagHMj2","FLOOR":"Level 2","ELEV":4.0},"geometry":{"type":"Polygon","coordinates":[[[-104.60956,38.9401792],[-104.6095592,38.9403216],[-104.609468,38.9403213],[-104.6094688,38.9401789],[-104.60956,38.9401792]]]}},{"type":"Feature","properties":{"UNIT_ID":"U214","NAME":"Print & Copy","USE_TYPE":"Workroom","LEVEL_ID":"RC-01-L2","FACILITY_ID":"RC-01","AREA_SQM":93.22,"IFC_GUID":"1cZU8hZXn75xzRZjagHMj1","FLOOR":"Level 2","ELEV":4.0},"geometry":{"type":"Polygon","coordinates":[[[-104.6094677,38.9401789],[-104.6094669,38.9403213],[-104.6093988,38.940321],[-104.6093996,38.9401787],[-104.6094677,38.9401789]]]}},{"type":"Feature","properties":{"UNIT_ID":"U215","NAME":"Stair & Elevator","USE_TYPE":"Vertical Circulation","LEVEL_ID":"RC-01-L2","FACILITY_ID":"RC-01","AREA_SQM":123.24,"IFC_GUID":"1cZU8hZXn75xzRZjagHMj0","FLOOR":"Level 2","ELEV":4.0},"geometry":{"type":"Polygon","coordinates":[[[-104.6093984,38.9401787],[-104.6093977,38.940321],[-104.6093077,38.9403207],[-104.6093084,38.9401784],[-104.6093984,38.9401787]]]}}]},"equipment":{"type":"FeatureCollection","features":[{"type":"Feature","properties":{"ASSET_ID":"RTR-CORE","NAME":"Core router","ASSET_TYPE":"Router","UNIT_ID":"U113","LEVEL_ID":"RC-01-L1","FACILITY_ID":"RC-01","IFC_CLASS":"IfcCommunicationsAppliance","IFC_GUID":"2KuvBhoprBZOMgvJL77Ckq","FLOOR":"Level 1","UPLINK":null,"SERVES":"","ELEV":0.0},"geometry":{"type":"Point","coordinates":[-104.6095138,38.9402867]}},{"type":"Feature","properties":{"ASSET_ID":"SW-CORE","NAME":"Core switch","ASSET_TYPE":"Switch","UNIT_ID":"U113","LEVEL_ID":"RC-01-L1","FACILITY_ID":"RC-01","IFC_CLASS":"IfcCommunicationsAppliance","IFC_GUID":"21AWHwt2r8iO0X05V8GUnt","FLOOR":"Level 1","UPLINK":"RTR-CORE","SERVES":"","ELEV":0.0},"geometry":{"type":"Point","coordinates":[-104.609514,38.9402507]}},{"type":"Feature","properties":{"ASSET_ID":"SW-L1-A","NAME":"Level 1 access switch","ASSET_TYPE":"Switch","UNIT_ID":"U113","LEVEL_ID":"RC-01-L1","FACILITY_ID":"RC-01","IFC_CLASS":"IfcCommunicationsAppliance","IFC_GUID":"00PSkkOAbBlAYiIp9zWEbj","FLOOR":"Level 1","UPLINK":"SW-CORE","SERVES":"","ELEV":0.0},"geometry":{"type":"Point","coordinates":[-104.6095142,38.9402146]}},{"type":"Feature","properties":{"ASSET_ID":"SW-L2-A","NAME":"Level 2 access switch A","ASSET_TYPE":"Switch","UNIT_ID":"U213","LEVEL_ID":"RC-01-L2","FACILITY_ID":"RC-01","IFC_CLASS":"IfcCommunicationsAppliance","IFC_GUID":"1EbKFYIm52EPzDtH8_VNXz","FLOOR":"Level 2","UPLINK":"SW-CORE","SERVES":"","ELEV":4.0},"geometry":{"type":"Point","coordinates":[-104.6095139,38.9402777]}},{"type":"Feature","properties":{"ASSET_ID":"SW-L2-B","NAME":"Level 2 access switch B","ASSET_TYPE":"Switch","UNIT_ID":"U213","LEVEL_ID":"RC-01-L2","FACILITY_ID":"RC-01","IFC_CLASS":"IfcCommunicationsAppliance","IFC_GUID":"1mjQYFUvrBg9irqdFQeF3T","FLOOR":"Level 2","UPLINK":"SW-CORE","SERVES":"","ELEV":4.0},"geometry":{"type":"Point","coordinates":[-104.6095142,38.9402237]}},{"type":"Feature","properties":{"ASSET_ID":"AP-101","NAME":"Access point - Lobby","ASSET_TYPE":"Access Point","UNIT_ID":"U101","LEVEL_ID":"RC-01-L1","FACILITY_ID":"RC-01","IFC_CLASS":"IfcCommunicationsAppliance","IFC_GUID":"2zD2QAbI50tACosyzJ_UXZ","FLOOR":"Level 1","UPLINK":"SW-L1-A","SERVES":"U101,U102,U110","ELEV":0.0},"geometry":{"type":"Point","coordinates":[-104.6099304,38.9400719]}},{"type":"Feature","properties":{"ASSET_ID":"AP-103","NAME":"Access point - Open Office A","ASSET_TYPE":"Access Point","UNIT_ID":"U103","LEVEL_ID":"RC-01-L1","FACILITY_ID":"RC-01","IFC_CLASS":"IfcCommunicationsAppliance","IFC_GUID":"264COihYz2oRcHlu6PyF4P","FLOOR":"Level 1","UPLINK":"SW-L1-A","SERVES":"U102,U103,U104,U110","ELEV":0.0},"geometry":{"type":"Point","coordinates":[-104.6096535,38.9400709]}},{"type":"Feature","properties":{"ASSET_ID":"AP-111","NAME":"Access point - Conference 111","ASSET_TYPE":"Access Point","UNIT_ID":"U111","LEVEL_ID":"RC-01-L1","FACILITY_ID":"RC-01","IFC_CLASS":"IfcCommunicationsAppliance","IFC_GUID":"0nkIBXVhLFigw$IGx8XwH$","FLOOR":"Level 1","UPLINK":"SW-L1-A","SERVES":"U110,U111,U112","ELEV":0.0},"geometry":{"type":"Point","coordinates":[-104.6099179,38.940252]}},{"type":"Feature","properties":{"ASSET_ID":"AP-112","NAME":"Access point - Open Office B","ASSET_TYPE":"Access Point","UNIT_ID":"U112","LEVEL_ID":"RC-01-L1","FACILITY_ID":"RC-01","IFC_CLASS":"IfcCommunicationsAppliance","IFC_GUID":"2LnV7AAZDFNQAZTQOAy0hL","FLOOR":"Level 1","UPLINK":"SW-L1-A","SERVES":"U110,U111,U112","ELEV":0.0},"geometry":{"type":"Point","coordinates":[-104.6096986,38.9402513]}},{"type":"Feature","properties":{"ASSET_ID":"AP-201","NAME":"Access point - Open Office C","ASSET_TYPE":"Access Point","UNIT_ID":"U201","LEVEL_ID":"RC-01-L2","FACILITY_ID":"RC-01","IFC_CLASS":"IfcCommunicationsAppliance","IFC_GUID":"0b3aDUl9X3AQXQHAzY1xKv","FLOOR":"Level 2","UPLINK":"SW-L2-A","SERVES":"U201,U202,U210","ELEV":4.0},"geometry":{"type":"Point","coordinates":[-104.6098611,38.9400716]}},{"type":"Feature","properties":{"ASSET_ID":"AP-204","NAME":"Access point - Training Room","ASSET_TYPE":"Access Point","UNIT_ID":"U204","LEVEL_ID":"RC-01-L2","FACILITY_ID":"RC-01","IFC_CLASS":"IfcCommunicationsAppliance","IFC_GUID":"1_gyyKd1bEV88C9uwNWupR","FLOOR":"Level 2","UPLINK":"SW-L2-A","SERVES":"U203,U204,U210","ELEV":4.0},"geometry":{"type":"Point","coordinates":[-104.6094227,38.9400702]}},{"type":"Feature","properties":{"ASSET_ID":"AP-211","NAME":"Access point - Conference 211","ASSET_TYPE":"Access Point","UNIT_ID":"U211","LEVEL_ID":"RC-01-L2","FACILITY_ID":"RC-01","IFC_CLASS":"IfcCommunicationsAppliance","IFC_GUID":"3ux$j_GqX0RRgslfpffKPk","FLOOR":"Level 2","UPLINK":"SW-L2-B","SERVES":"U210,U211,U212","ELEV":4.0},"geometry":{"type":"Point","coordinates":[-104.6099063,38.940252]}},{"type":"Feature","properties":{"ASSET_ID":"AP-212","NAME":"Access point - Open Office D","ASSET_TYPE":"Access Point","UNIT_ID":"U212","LEVEL_ID":"RC-01-L2","FACILITY_ID":"RC-01","IFC_CLASS":"IfcCommunicationsAppliance","IFC_GUID":"2j05D0UzD2NRUkPjTCf4PQ","FLOOR":"Level 2","UPLINK":"SW-L2-B","SERVES":"U210,U211,U212","ELEV":4.0},"geometry":{"type":"Point","coordinates":[-104.6096871,38.9402513]}},{"type":"Feature","properties":{"ASSET_ID":"PRN-103","NAME":"Printer - Open Office A","ASSET_TYPE":"Printer","UNIT_ID":"U103","LEVEL_ID":"RC-01-L1","FACILITY_ID":"RC-01","IFC_CLASS":"IfcCommunicationsAppliance","IFC_GUID":"3J2L81U3H4KhTCEcASKQQf","FLOOR":"Level 1","UPLINK":"SW-L1-A","SERVES":"","ELEV":0.0},"geometry":{"type":"Point","coordinates":[-104.6095844,38.9400347]}},{"type":"Feature","properties":{"ASSET_ID":"PRN-214","NAME":"Printer - Print & Copy","ASSET_TYPE":"Printer","UNIT_ID":"U214","LEVEL_ID":"RC-01-L2","FACILITY_ID":"RC-01","IFC_CLASS":"IfcCommunicationsAppliance","IFC_GUID":"3xqLsDwMH40ffxogm3fbvC","FLOOR":"Level 2","UPLINK":"SW-L2-B","SERVES":"","ELEV":4.0},"geometry":{"type":"Point","coordinates":[-104.6094332,38.9402504]}},{"type":"Feature","properties":{"ASSET_ID":"CAM-101","NAME":"Camera - Lobby entrance","ASSET_TYPE":"Camera","UNIT_ID":"U101","LEVEL_ID":"RC-01-L1","FACILITY_ID":"RC-01","IFC_CLASS":"IfcCommunicationsAppliance","IFC_GUID":"0zWWT2j$X3IfAx8TlDpZOO","FLOOR":"Level 1","UPLINK":"SW-L1-A","SERVES":"","ELEV":0.0},"geometry":{"type":"Point","coordinates":[-104.6099768,38.940027]}},{"type":"Feature","properties":{"ASSET_ID":"CAM-110","NAME":"Camera - Corridor 1","ASSET_TYPE":"Camera","UNIT_ID":"U110","LEVEL_ID":"RC-01-L1","FACILITY_ID":"RC-01","IFC_CLASS":"IfcCommunicationsAppliance","IFC_GUID":"3PHonoebb3Q8YDb9VLs4dn","FLOOR":"Level 1","UPLINK":"SW-L1-A","SERVES":"","ELEV":0.0},"geometry":{"type":"Point","coordinates":[-104.6094222,38.9401603]}},{"type":"Feature","properties":{"ASSET_ID":"BADGE-101","NAME":"Badge reader - Main entry","ASSET_TYPE":"Access Control","UNIT_ID":"U101","LEVEL_ID":"RC-01-L1","FACILITY_ID":"RC-01","IFC_CLASS":"IfcCommunicationsAppliance","IFC_GUID":"3wyB85JCT2oQPDvUYcWnNT","FLOOR":"Level 1","UPLINK":"SW-L1-A","SERVES":"","ELEV":0.0},"geometry":{"type":"Point","coordinates":[-104.6099768,38.9400179]}}]},"floors":{"type":"FeatureCollection","features":[{"type":"Feature","properties":{"FACILITY_ID":"RC-01","LEVEL_ID":"RC-01-L1","NAME":"Level 1","NAME_SHORT":"1","LEVEL_NUMBER":1,"VERTICAL_ORDER":0,"ELEVATION":0.0},"geometry":{"type":"Polygon","coordinates":[[[-104.609539,38.9399998],[-104.6099983,38.9400013],[-104.6099983,38.9400013],[-104.6099983,38.9400014],[-104.6099975,38.9401437],[-104.6099965,38.940323],[-104.6099965,38.940323],[-104.6099965,38.940323],[-104.6093077,38.9403207],[-104.6093077,38.9403207],[-104.6093077,38.9403207],[-104.6093094,38.9399991],[-104.6093094,38.939999],[-104.6093094,38.939999],[-104.609539,38.9399998]]]}},{"type":"Feature","properties":{"FACILITY_ID":"RC-01","LEVEL_ID":"RC-01-L2","NAME":"Level 2","NAME_SHORT":"2","LEVEL_NUMBER":2,"VERTICAL_ORDER":1,"ELEVATION":4.0},"geometry":{"type":"Polygon","coordinates":[[[-104.6096302,38.9400001],[-104.6099983,38.9400013],[-104.6099983,38.9400013],[-104.6099983,38.9400014],[-104.6099975,38.9401437],[-104.6099965,38.940323],[-104.6099965,38.940323],[-104.6099965,38.940323],[-104.6093077,38.9403207],[-104.6093077,38.9403207],[-104.6093077,38.9403207],[-104.6093086,38.9401414],[-104.6093094,38.9399991],[-104.6093094,38.939999],[-104.6093094,38.939999],[-104.6096302,38.9400001]]]}}]},"building":{"type":"FeatureCollection","features":[{"type":"Feature","properties":{"FACILITY_ID":"RC-01","NAME":"Building Name","SOURCE":"Project1.ifc"},"geometry":{"type":"Polygon","coordinates":[[[-104.6096302,38.9400001],[-104.6099983,38.9400013],[-104.6099983,38.9400013],[-104.6099983,38.9400014],[-104.6099975,38.9401437],[-104.6099975,38.9401437],[-104.6099965,38.940323],[-104.6099965,38.940323],[-104.6099965,38.940323],[-104.6093077,38.9403207],[-104.6093077,38.9403207],[-104.6093077,38.9403207],[-104.6093086,38.9401414],[-104.6093094,38.9399991],[-104.6093094,38.939999],[-104.6093094,38.939999],[-104.609539,38.9399998],[-104.6096302,38.9400001]]]}}]}};
+(function(){
+  var D=window.DATA, R=D.rooms, E=D.equipment, F=D.floors, B=D.building;
+  var FLOOR='Level 1', VIEW='2d', FAILED=null;
+  var H=3.4; // storey height used for extrusion (m)
+  var TYPE_COL={'Router':'#D4A43A','Switch':'#D4A43A','Access Point':'#3FC1C9','Printer':'#b48cff','Camera':'#b48cff','Access Control':'#b48cff'};
+  var byId={};E.features.forEach(function(f){byId[f.properties.ASSET_ID]=f;});
+  var roomById={};R.features.forEach(function(f){roomById[f.properties.UNIT_ID]=f;});
+
+  // small square footprints so equipment can be extruded at its floor height in 3D
+  function box(f,s){var c=f.geometry.coordinates,dx=s/(111320*Math.cos(c[1]*Math.PI/180)),dy=s/110574;return {type:'Feature',properties:f.properties,geometry:{type:'Polygon',coordinates:[[[c[0]-dx,c[1]-dy],[c[0]+dx,c[1]-dy],[c[0]+dx,c[1]+dy],[c[0]-dx,c[1]+dy],[c[0]-dx,c[1]-dy]]]}};}
+  var EBOX={type:'FeatureCollection',features:E.features.map(function(f){return box(f,0.45);})};
+  function centroid(g){var r=g.type==='Polygon'?g.coordinates[0]:g.coordinates[0][0],x=0,y=0;r.slice(0,-1).forEach(function(p){x+=p[0];y+=p[1];});return [x/(r.length-1),y/(r.length-1)];}
+  var LABELS={type:'FeatureCollection',features:R.features.map(function(f){return {type:'Feature',properties:{NAME:f.properties.NAME,FLOOR:f.properties.FLOOR,UNIT_ID:f.properties.UNIT_ID},geometry:{type:'Point',coordinates:centroid(f.geometry)}};})};
+
+  var bb=[180,90,-180,-90];R.features.forEach(function(f){(f.geometry.type==='Polygon'?f.geometry.coordinates[0]:f.geometry.coordinates[0][0]).forEach(function(c){bb[0]=Math.min(bb[0],c[0]);bb[1]=Math.min(bb[1],c[1]);bb[2]=Math.max(bb[2],c[0]);bb[3]=Math.max(bb[3],c[1]);});});
+
+  var map=new maplibregl.Map({container:'map',bounds:[[bb[0],bb[1]],[bb[2],bb[3]]],fitBoundsOptions:{padding:60},maxZoom:22,
+    style:{version:8,glyphs:'https://demotiles.maplibre.org/font/{fontstack}/{range}.pbf',
+      sources:{dark:{type:'raster',tiles:['https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Dark_Gray_Base/MapServer/tile/{z}/{y}/{x}'],tileSize:256,maxzoom:16,attribution:'Esri, HERE, Garmin, © OpenStreetMap contributors'},
+        img:{type:'raster',tiles:['https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}'],tileSize:256,maxzoom:19,attribution:'Esri, Maxar, Earthstar Geographics'}},
+      layers:[{id:'bg',type:'background',paint:{'background-color':'#0b1320'}},{id:'dark',type:'raster',source:'dark',paint:{'raster-opacity':.9}},{id:'img',type:'raster',source:'img',paint:{'raster-opacity':.35}}]}});
+  map.addControl(new maplibregl.NavigationControl({visualizePitch:true}),'top-right');
+
+  var roomState={}; // UNIT_ID -> 'down'|'deg'
+  function roomColorExpr(){var m=['match',['get','UNIT_ID']],any=false;Object.keys(roomState).forEach(function(k){m.push(k,roomState[k]==='down'?'#E5484D':'#F0A830');any=true;});m.push('#2a4766');return any?m:'#2a4766';}
+
+  map.on('load',function(){
+    map.addSource('building',{type:'geojson',data:B});
+    map.addSource('rooms',{type:'geojson',data:R,promoteId:'UNIT_ID'});
+    map.addSource('ebox',{type:'geojson',data:EBOX});
+    map.addSource('equip',{type:'geojson',data:E});
+    map.addSource('labels',{type:'geojson',data:LABELS});
+    map.addLayer({id:'bldg',type:'line',source:'building',paint:{'line-color':'#F3EEE3','line-width':2.5}});
+    map.addLayer({id:'rooms-fill',type:'fill',source:'rooms',paint:{'fill-color':'#2a4766','fill-opacity':['case',['boolean',['feature-state','hl'],false],1,.85]}});
+    map.addLayer({id:'rooms-line',type:'line',source:'rooms',paint:{'line-color':['case',['boolean',['feature-state','hl'],false],'#ffffff','#3FC1C9'],'line-width':['case',['boolean',['feature-state','hl'],false],3,1.2]}});
+    map.addLayer({id:'rooms-3d',type:'fill-extrusion',source:'rooms',layout:{visibility:'none'},paint:{'fill-extrusion-color':'#2a4766','fill-extrusion-base':['get','ELEV'],'fill-extrusion-height':['+',['get','ELEV'],H],'fill-extrusion-opacity':.85}});
+    map.addLayer({id:'equip-3d',type:'fill-extrusion',source:'ebox',layout:{visibility:'none'},paint:{'fill-extrusion-color':['match',['get','ASSET_TYPE'],'Router','#D4A43A','Switch','#D4A43A','Access Point','#3FC1C9','#b48cff'],'fill-extrusion-base':['+',['get','ELEV'],H+.05],'fill-extrusion-height':['+',['get','ELEV'],H+.9]}});
+    map.addLayer({id:'equip',type:'circle',source:'equip',paint:{'circle-radius':['interpolate',['linear'],['zoom'],17,4,20,8],'circle-color':['match',['get','ASSET_TYPE'],'Router','#D4A43A','Switch','#D4A43A','Access Point','#3FC1C9','#b48cff'],'circle-stroke-color':'#0b1320','circle-stroke-width':2}});
+    map.addLayer({id:'equip-x',type:'circle',source:'equip',filter:['in',['get','ASSET_ID'],['literal',[]]],paint:{'circle-radius':['interpolate',['linear'],['zoom'],17,7,20,13],'circle-color':'rgba(0,0,0,0)','circle-stroke-color':'#E5484D','circle-stroke-width':3}});
+    map.addLayer({id:'labels',type:'symbol',source:'labels',layout:{'text-field':['get','NAME'],'text-font':['Open Sans Semibold'],'text-size':['interpolate',['linear'],['zoom'],18,10,20,13],'text-max-width':7,'text-allow-overlap':false},paint:{'text-color':'#F3EEE3','text-halo-color':'#0b1320','text-halo-width':1.5}});
+    applyFloor();
+    map.on('click','equip',function(e){var p=e.features[0].properties;popEquip(p,e.lngLat);if(isUpstream(p.ASSET_ID)){document.getElementById('failSel').value=p.ASSET_ID;}});
+    map.on('click','rooms-fill',function(e){showRoom(e.features[0].properties.UNIT_ID,false);});
+    ['equip','rooms-fill'].forEach(function(l){map.on('mouseenter',l,function(){map.getCanvas().style.cursor='pointer';});map.on('mouseleave',l,function(){map.getCanvas().style.cursor='';});});
+  });
+
+  /* ---------- floors and views ---------- */
+  function applyFloor(){
+    document.querySelectorAll('.floors button').forEach(function(b){b.setAttribute('aria-pressed',String(b.dataset.f===FLOOR));});
+    if(!map.getLayer('rooms-fill'))return;
+    var f2=['==',['get','FLOOR'],FLOOR];
+    if(VIEW==='2d'){['rooms-fill','rooms-line','equip','equip-x','labels'].forEach(function(l){map.setLayoutProperty(l,'visibility','visible');});['rooms-3d','equip-3d'].forEach(function(l){map.setLayoutProperty(l,'visibility','none');});
+      map.setFilter('rooms-fill',f2);map.setFilter('rooms-line',f2);map.setFilter('equip',f2);map.setFilter('labels',f2);
+      map.setFilter('equip-x',['all',f2,['in',['get','ASSET_ID'],['literal',downList()]]]);}
+    else{['rooms-fill','rooms-line','equip','equip-x','labels'].forEach(function(l){map.setLayoutProperty(l,'visibility','none');});['rooms-3d','equip-3d'].forEach(function(l){map.setLayoutProperty(l,'visibility','visible');});
+      // floors at and below the selected one are drawn; the selected floor is solid
+      var lvl=FLOOR==='Level 2'?2:1, show=lvl===2?['literal',['Level 1','Level 2']]:['literal',['Level 1']];
+      map.setFilter('rooms-3d',['in',['get','FLOOR'],show]);map.setFilter('equip-3d',['in',['get','FLOOR'],show]);}
+    paintRooms();
+  }
+  function paintRooms(){if(!map.getLayer('rooms-fill'))return;var c=roomColorExpr();map.setPaintProperty('rooms-fill','fill-color',c);map.setPaintProperty('rooms-3d','fill-extrusion-color',VIEW==='3d'?['case',['==',['get','FLOOR'],FLOOR],c,'#1b2a3d']:c);}
+  document.querySelectorAll('.floors button').forEach(function(b){b.onclick=function(){FLOOR=b.dataset.f;applyFloor();};});
+  function setView(v){VIEW=v;document.getElementById('v2d').setAttribute('aria-pressed',String(v==='2d'));document.getElementById('v3d').setAttribute('aria-pressed',String(v==='3d'));
+    map.easeTo({pitch:v==='3d'?60:0,bearing:v==='3d'?-25:0,duration:900});applyFloor();}
+  document.getElementById('v2d').onclick=function(){setView('2d');};document.getElementById('v3d').onclick=function(){setView('3d');};
+
+  /* ---------- search ---------- */
+  var dl=document.getElementById('roomList');R.features.slice().sort(function(a,b){return a.properties.UNIT_ID<b.properties.UNIT_ID?-1:1;}).forEach(function(f){var o=document.createElement('option');o.value=f.properties.NAME+' ('+f.properties.UNIT_ID+')';dl.appendChild(o);});
+  var hl=null;
+  function showRoom(id,fly){var f=roomById[id];if(!f)return;var p=f.properties;
+    if(hl)map.setFeatureState({source:'rooms',id:hl},{hl:false});hl=id;map.setFeatureState({source:'rooms',id:id},{hl:true});
+    if(FLOOR!==p.FLOOR){FLOOR=p.FLOOR;applyFloor();}
+    if(fly)map.flyTo({center:centroid(f.geometry),zoom:Math.max(map.getZoom(),19.6),duration:900});
+    var eq=E.features.filter(function(e){return e.properties.UNIT_ID===id;}).map(function(e){return e.properties.NAME;});
+    var cov=E.features.filter(function(e){return (e.properties.SERVES||'').split(',').indexOf(id)>=0;}).map(function(e){return e.properties.ASSET_ID;});
+    var st=roomState[id];
+    document.getElementById('info').innerHTML='<div class="card"><b class="h">'+p.NAME+'</b><span style="color:var(--muted);font-family:var(--f-m);font-size:11px">'+p.UNIT_ID+' · '+p.FLOOR+' · '+p.USE_TYPE+'</span>'+(st?' <span class="pill '+st+'">'+(st==='down'?'no service':'degraded')+'</span>':'')+
+      '<div class="kv"><span>Area</span><span>'+Math.round(p.AREA_SQM*10.7639).toLocaleString()+' sq ft ('+p.AREA_SQM.toFixed(0)+' m²)</span><span>Level ID</span><span>'+p.LEVEL_ID+'</span><span>Wi-Fi from</span><span>'+(cov.join(', ')||'none')+'</span><span>Equipment</span><span>'+(eq.join(', ')||'none')+'</span></div></div>';}
+  document.getElementById('searchForm').onsubmit=function(e){e.preventDefault();var q=document.getElementById('q').value.trim().toLowerCase();if(!q)return;
+    var m=q.match(/\(([a-z]\d+)\)$/i),hit=null;R.features.forEach(function(f){var p=f.properties;if(hit)return;if((m&&p.UNIT_ID.toLowerCase()===m[1].toLowerCase())||p.UNIT_ID.toLowerCase()===q||p.NAME.toLowerCase()===q)hit=f;});
+    if(!hit)R.features.forEach(function(f){if(!hit&&f.properties.NAME.toLowerCase().indexOf(q)>=0)hit=f;});
+    if(hit)showRoom(hit.properties.UNIT_ID,true);else document.getElementById('info').innerHTML='<p class="note">No room matches "'+q.replace(/</g,'&lt;')+'".</p>';};
+
+  /* ---------- failure simulation ---------- */
+  function children(id){return E.features.filter(function(f){return f.properties.UPLINK===id;}).map(function(f){return f.properties.ASSET_ID;});}
+  function isUpstream(id){return children(id).length>0;}
+  function downstream(id){var out=[id],q=[id];while(q.length){children(q.shift()).forEach(function(c){out.push(c);q.push(c);});}return out;}
+  function downList(){return FAILED?downstream(FAILED):[];}
+  var sel=document.getElementById('failSel');
+  E.features.filter(function(f){return isUpstream(f.properties.ASSET_ID)||f.properties.ASSET_TYPE==='Access Point';}).forEach(function(f){var p=f.properties,o=document.createElement('option');o.value=p.ASSET_ID;o.textContent=p.ASSET_ID+' · '+p.NAME+' ('+p.FLOOR+')';sel.appendChild(o);});
+  sel.value='SW-L2-B';
+  function runSim(id){FAILED=id;var down=downstream(id),downSet={};down.forEach(function(d){downSet[d]=1;});roomState={};
+    var lost=[],deg=[];
+    R.features.forEach(function(r){var u=r.properties.UNIT_ID;
+      var aps=E.features.filter(function(e){return e.properties.ASSET_TYPE==='Access Point'&&(e.properties.SERVES||'').split(',').indexOf(u)>=0;});
+      var apDown=aps.filter(function(a){return downSet[a.properties.ASSET_ID];}).length;
+      var devDown=E.features.filter(function(e){var ty=e.properties.ASSET_TYPE;return e.properties.UNIT_ID===u&&ty!=='Access Point'&&ty!=='Switch'&&ty!=='Router'&&downSet[e.properties.ASSET_ID];});r._why=(aps.length&&apDown===aps.length)?'no Wi-Fi':(devDown.length?devDown.map(function(d){return d.properties.ASSET_TYPE.toLowerCase();}).join(', ')+' offline':'');
+      if((aps.length&&apDown===aps.length)||devDown.length){roomState[u]='down';lost.push(r);}else if(apDown>0){roomState[u]='deg';deg.push(r);}});
+    document.getElementById('kDown').textContent=down.length;document.getElementById('kLost').textContent=lost.length;document.getElementById('kDeg').textContent=deg.length;
+    var li=down.map(function(d){var p=byId[d].properties;return '<li><span class="pill down">down</span>'+p.ASSET_ID+' · '+p.NAME+'</li>';}).concat(lost.map(function(r){return '<li><span class="pill down">'+r._why+'</span>'+r.properties.NAME+' ('+r.properties.FLOOR+')</li>';})).concat(deg.map(function(r){return '<li><span class="pill deg">weaker Wi-Fi</span>'+r.properties.NAME+' ('+r.properties.FLOOR+')</li>';}));
+    document.getElementById('simList').innerHTML=li.join('');
+    var fl=byId[id].properties.FLOOR;if(FLOOR!==fl){FLOOR=fl;}applyFloor();}
+  document.getElementById('failBtn').onclick=function(){runSim(sel.value);};
+  document.getElementById('resetBtn').onclick=function(){FAILED=null;roomState={};['kDown','kLost','kDeg'].forEach(function(k){document.getElementById(k).textContent='0';});document.getElementById('simList').innerHTML='';applyFloor();};
+  function popEquip(p,ll){var up=p.UPLINK?byId[p.UPLINK].properties.NAME:'none (top of network)';
+    new maplibregl.Popup({offset:10}).setLngLat(ll).setHTML('<b style="font:700 15px var(--f-d)">'+p.NAME+'</b><br><span style="color:var(--muted);font-family:var(--f-m);font-size:11px">'+p.ASSET_ID+' · '+p.ASSET_TYPE+' · '+p.FLOOR+'</span><br>Room: '+(roomById[p.UNIT_ID]?roomById[p.UNIT_ID].properties.NAME:p.UNIT_ID)+'<br>Uplink: '+up+(p.SERVES?'<br>Wi-Fi for: '+p.SERVES.split(',').map(function(u){return roomById[u].properties.NAME;}).join(', '):'')+'<br>IFC class: '+p.IFC_CLASS+(isUpstream(p.ASSET_ID)||p.ASSET_TYPE==='Access Point'?'<br><a href="#" id="popFail">Simulate failure ›</a>':'')).addTo(map);
+    setTimeout(function(){var a=document.getElementById('popFail');if(a)a.onclick=function(e){e.preventDefault();sel.value=p.ASSET_ID;runSim(p.ASSET_ID);};},0);}
+
+  /* ---------- stats + downloads ---------- */
+  var cnt={};E.features.forEach(function(f){cnt[f.properties.ASSET_TYPE]=(cnt[f.properties.ASSET_TYPE]||0)+1;});
+  var area=R.features.reduce(function(s,f){return s+f.properties.AREA_SQM;},0);
+  var rows=[['Levels',F.features.length],['Rooms',R.features.length],['Floor area (rooms)',Math.round(area*10.7639).toLocaleString()+' sq ft']].concat(Object.keys(cnt).sort().map(function(k){return [k,cnt[k]];}));
+  document.getElementById('stats').innerHTML=rows.map(function(r){return '<tr><td>'+r[0]+'</td><td>'+r[1]+'</td></tr>';}).join('');
+  document.querySelectorAll('[data-dl]').forEach(function(b){b.onclick=function(){var k=b.dataset.dl,blob=new Blob([JSON.stringify(D[k])],{type:'application/geo+json'}),u=URL.createObjectURL(blob),a=document.createElement('a');a.href=u;a.download='ridgeline_commons_'+k+'.geojson';document.body.appendChild(a);a.click();a.remove();setTimeout(function(){URL.revokeObjectURL(u);},2000);};});
+})();
+</script>
+</body>
+</html>
