@@ -34,7 +34,7 @@ h1{margin:0;font:700 30px/1 var(--f-d);letter-spacing:.02em}
 .legend li{display:flex;gap:8px;align-items:center}
 .sw{width:12px;height:12px;border-radius:50%;flex:0 0 12px;border:2px solid #0b1320}
 .sq{width:16px;height:12px;border-radius:2px;flex:0 0 16px}
-.note-fict{position:absolute;right:8px;bottom:26px;z-index:5;font:10.5px var(--f-m);color:#dfe6ee;text-shadow:0 0 3px #000}
+.note-fict{position:absolute;left:80px;top:14px;right:auto;bottom:auto;z-index:5;font:10.5px var(--f-m);color:#dfe6ee;text-shadow:0 0 3px #000}
 aside{overflow-y:auto;background:var(--graphite);border-left:1px solid var(--line)}
 aside section{padding:14px 18px;border-bottom:1px solid var(--line)}
 h2{margin:0 0 8px;font:700 15px var(--f-d);letter-spacing:.08em;text-transform:uppercase}
@@ -160,6 +160,7 @@ window.DATA={"rooms":{"type":"FeatureCollection","features":[{"type":"Feature","
   map.addControl(new maplibregl.NavigationControl({visualizePitch:true}),'top-right');
 
   var roomState={}; // UNIT_ID -> 'down'|'deg'
+  var READY=false,queued=[];function whenReady(fn){if(READY)fn();else queued.push(fn);}
   function roomColorExpr(){var m=['match',['get','UNIT_ID']],any=false;Object.keys(roomState).forEach(function(k){m.push(k,roomState[k]==='down'?'#E5484D':'#F0A830');any=true;});m.push('#2a4766');return any?m:'#2a4766';}
 
   map.on('load',function(){
@@ -176,7 +177,7 @@ window.DATA={"rooms":{"type":"FeatureCollection","features":[{"type":"Feature","
     map.addLayer({id:'equip',type:'circle',source:'equip',paint:{'circle-radius':['interpolate',['linear'],['zoom'],17,4,20,8],'circle-color':['match',['get','ASSET_TYPE'],'Router','#D4A43A','Switch','#D4A43A','Access Point','#3FC1C9','#b48cff'],'circle-stroke-color':'#0b1320','circle-stroke-width':2}});
     map.addLayer({id:'equip-x',type:'circle',source:'equip',filter:['in',['get','ASSET_ID'],['literal',[]]],paint:{'circle-radius':['interpolate',['linear'],['zoom'],17,7,20,13],'circle-color':'rgba(0,0,0,0)','circle-stroke-color':'#E5484D','circle-stroke-width':3}});
     map.addLayer({id:'labels',type:'symbol',source:'labels',layout:{'text-field':['get','NAME'],'text-font':['Open Sans Semibold'],'text-size':['interpolate',['linear'],['zoom'],18,10,20,13],'text-max-width':7,'text-allow-overlap':false},paint:{'text-color':'#F3EEE3','text-halo-color':'#0b1320','text-halo-width':1.5}});
-    applyFloor();
+    READY=true;applyFloor();queued.splice(0).forEach(function(fn){fn();});
     map.on('click','equip',function(e){var p=e.features[0].properties;popEquip(p,e.lngLat);if(isUpstream(p.ASSET_ID)){document.getElementById('failSel').value=p.ASSET_ID;}});
     map.on('click','rooms-fill',function(e){showRoom(e.features[0].properties.UNIT_ID,false);});
     ['equip','rooms-fill'].forEach(function(l){map.on('mouseenter',l,function(){map.getCanvas().style.cursor='pointer';});map.on('mouseleave',l,function(){map.getCanvas().style.cursor='';});});
@@ -217,7 +218,7 @@ window.DATA={"rooms":{"type":"FeatureCollection","features":[{"type":"Feature","
   document.getElementById('searchForm').onsubmit=function(e){e.preventDefault();var q=document.getElementById('q').value.trim().toLowerCase();if(!q)return;
     var m=q.match(/\(([a-z]\d+)\)$/i),hit=null;R.features.forEach(function(f){var p=f.properties;if(hit)return;if((m&&p.UNIT_ID.toLowerCase()===m[1].toLowerCase())||p.UNIT_ID.toLowerCase()===q||p.NAME.toLowerCase()===q)hit=f;});
     if(!hit)R.features.forEach(function(f){if(!hit&&f.properties.NAME.toLowerCase().indexOf(q)>=0)hit=f;});
-    if(hit)showRoom(hit.properties.UNIT_ID,true);else document.getElementById('info').innerHTML='<p class="note">No room matches "'+q.replace(/</g,'&lt;')+'".</p>';};
+    if(hit)whenReady(function(){showRoom(hit.properties.UNIT_ID,true);});else document.getElementById('info').innerHTML='<p class="note">No room matches "'+q.replace(/</g,'&lt;')+'".</p>';};
 
   /* ---------- failure simulation ---------- */
   function children(id){return E.features.filter(function(f){return f.properties.UPLINK===id;}).map(function(f){return f.properties.ASSET_ID;});}
@@ -238,7 +239,7 @@ window.DATA={"rooms":{"type":"FeatureCollection","features":[{"type":"Feature","
     var li=down.map(function(d){var p=byId[d].properties;return '<li><span class="pill down">down</span>'+p.ASSET_ID+' · '+p.NAME+'</li>';}).concat(lost.map(function(r){return '<li><span class="pill down">'+r._why+'</span>'+r.properties.NAME+' ('+r.properties.FLOOR+')</li>';})).concat(deg.map(function(r){return '<li><span class="pill deg">weaker Wi-Fi</span>'+r.properties.NAME+' ('+r.properties.FLOOR+')</li>';}));
     document.getElementById('simList').innerHTML=li.join('');
     var fl=byId[id].properties.FLOOR;if(FLOOR!==fl){FLOOR=fl;}applyFloor();}
-  document.getElementById('failBtn').onclick=function(){runSim(sel.value);};
+  document.getElementById('failBtn').onclick=function(){var v=sel.value;whenReady(function(){runSim(v);});};
   document.getElementById('resetBtn').onclick=function(){FAILED=null;roomState={};['kDown','kLost','kDeg'].forEach(function(k){document.getElementById(k).textContent='0';});document.getElementById('simList').innerHTML='';applyFloor();};
   function popEquip(p,ll){var up=p.UPLINK?byId[p.UPLINK].properties.NAME:'none (top of network)';
     new maplibregl.Popup({offset:10}).setLngLat(ll).setHTML('<b style="font:700 15px var(--f-d)">'+p.NAME+'</b><br><span style="color:var(--muted);font-family:var(--f-m);font-size:11px">'+p.ASSET_ID+' · '+p.ASSET_TYPE+' · '+p.FLOOR+'</span><br>Room: '+(roomById[p.UNIT_ID]?roomById[p.UNIT_ID].properties.NAME:p.UNIT_ID)+'<br>Uplink: '+up+(p.SERVES?'<br>Wi-Fi for: '+p.SERVES.split(',').map(function(u){return roomById[u].properties.NAME;}).join(', '):'')+'<br>IFC class: '+p.IFC_CLASS+(isUpstream(p.ASSET_ID)||p.ASSET_TYPE==='Access Point'?'<br><a href="#" id="popFail">Simulate failure ›</a>':'')).addTo(map);
